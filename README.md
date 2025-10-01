@@ -1,13 +1,46 @@
-# Turborepo starter
+# 🚀 Token Analyzer App - MVP Implementation
 
-This Turborepo starter is maintained by the Turborepo core team.
+Este projeto implementa um analisador de tokens do Pump.fun com foco em identificação de padrões, detecção de insider trading e análise de risco.
 
-## Using this example
+## 🎯 Features Implementadas (MVP)
 
-Run the following command:
+### ✅ 1. Fetch Token Data
 
-```sh
-npx create-turbo@latest
+- ✅ **Moralis API Integration**: Busca preços, volumes e metadata de tokens
+- ✅ **Pump.fun Focus**: Integração específica com tokens do Pump.fun
+- ✅ **Real-time Updates**: Cron job a cada 5 minutos
+- ✅ **RESTful API**: Endpoints para testar via Postman
+
+### ✅ 2. Analyze Token Data
+
+- ✅ **Pattern Detection**: Identifica spikes de preço, dumps e volatilidade
+- ✅ **Volume Analysis**: Detecta mudanças suspeitas de volume
+- ✅ **Migration Tracking**: Monitora status de migração para Pump.fun
+- ✅ **Risk Scoring**: Score de 0-100 para cada token
+
+### ✅ 3. Detect Insider Tokens
+
+- ✅ **Suspicious Activity Detection**: Analisa atividade insider
+- ✅ **Risk Assessment**: Níveis de risco (avoid, caution, monitor, safe)
+- ✅ **Age Analysis**: Considera idade do token para risco
+- ✅ **Market Cap Analysis**: Detecta tokens com market cap suspeito
+
+## 📡 API Endpoints para Postman
+
+### Token Data Endpoints
+
+```bash
+# Test connectivity (no auth required)
+GET http://127.0.0.1:3001/token-data/test
+
+# Get specific token price
+GET http://127.0.0.1:3001/token-data/price/9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump
+
+# Force update all tokens
+POST http://127.0.0.1:3001/token-data/update
+
+# Get all tokens
+GET http://127.0.0.1:3001/token-data
 ```
 
 ## What's inside?
