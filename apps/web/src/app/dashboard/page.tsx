@@ -100,10 +100,12 @@ export default function DashboardPage() {
   >([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
+
   // Token Details Modal State
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedTokenAddress, setSelectedTokenAddress] = useState<string | null>(null)
+  const [selectedTokenAddress, setSelectedTokenAddress] = useState<
+    string | null
+  >(null)
 
   const supabase = createClient()
 
@@ -116,14 +118,17 @@ export default function DashboardPage() {
         throw new Error('Not authenticated')
       }
 
-      const response = await fetch('http://localhost:3001/token-data/analyze', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
+      const response = await fetch(
+        'http://localhost:3001/token-data/pumpfun/analysis',
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         },
-      })
+      )
 
       if (!response.ok) {
-        throw new Error('Failed to fetch token analysis')
+        throw new Error('Failed to fetch Pump.fun memecoin analysis')
       }
 
       const data = await response.json()
@@ -145,7 +150,7 @@ export default function DashboardPage() {
       }
 
       const response = await fetch(
-        'http://localhost:3001/token-data/high-potential',
+        'http://localhost:3001/token-data/pumpfun/tokens',
         {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -154,7 +159,7 @@ export default function DashboardPage() {
       )
 
       if (!response.ok) {
-        throw new Error('Failed to fetch high potential tokens')
+        throw new Error('Failed to fetch Pump.fun memecoins')
       }
 
       const data = await response.json()
@@ -180,43 +185,49 @@ export default function DashboardPage() {
           ? analysisResponse.data
           : []
       const highPotentialData =
-        highPotentialResponse?.success && highPotentialResponse?.tokens
-          ? highPotentialResponse.tokens
-          : []
+        highPotentialResponse?.success && highPotentialResponse?.data
+          ? highPotentialResponse.data
+          : highPotentialResponse?.tokens || []
 
       // Map the API response to our component interfaces
-      const mappedTokens = analysisData.map((item: ApiTokenData) => ({
-        address: item.token.address,
-        name: item.token.name,
-        symbol: item.token.symbol,
-        currentPrice: item.token.priceUsd,
+      const mappedTokens = (
+        Array.isArray(analysisData) ? analysisData : []
+      ).map((item: any) => ({
+        address: item.address || item.token?.address || 'unknown',
+        name: item.name || item.token?.name || 'Unknown Token',
+        symbol: item.symbol || item.token?.symbol || 'UNKNOWN',
+        currentPrice: item.priceUsd || item.token?.priceUsd || 0,
         priceChange24h: Math.random() * 20 - 10, // Simulated for MVP (-10% to +10%)
-        volume24h: item.token.volume24h,
-        marketCap: item.token.marketCap,
-        riskScore: 100 - item.analysis.overall_score, // Invert score for risk
-        recommendation: item.analysis.recommendation,
+        volume24h: item.volume24h || item.token?.volume24h || 0,
+        marketCap: item.marketCap || item.token?.marketCap || 0,
+        riskScore:
+          item.riskScore ||
+          (item.analysis ? 100 - item.analysis.overall_score : 80),
+        recommendation:
+          item.recommendation || item.analysis?.recommendation || 'Hold',
         patterns: {},
-        imageUrl: item.token.imageUrl,
+        imageUrl: item.imageUrl || item.token?.imageUrl || null,
       }))
 
-      const mappedHighPotential = highPotentialData.map((item: HighPotentialToken) => ({
-        address: item.address,
-        name: item.name,
-        symbol: item.symbol,
-        currentPrice: parseFloat(item.priceUsd),
-        priceChange24h: Math.random() * 15 + 2, // Simulated positive change for high potential (2% to 17%)
-        volume24h: item.volume24h,
-        marketCap: item.marketCap,
-        riskScore: item.riskScore,
-        recommendation: item.recommendation,
-        patterns: {},
-        imageUrl: item.imageUrl,
-        potentialScore: 100 - item.riskScore, // Higher score for lower risk
-        reasons: [
-          `${item.potentialGain} potential gain`,
-          `${item.confidence} confidence`,
-          `${item.timeframe} timeframe`
-        ],
+      const mappedHighPotential = (
+        Array.isArray(highPotentialData) ? highPotentialData : []
+      ).map((item: any) => ({
+        address: item.address || 'unknown',
+        name: item.name || 'Unknown Token',
+        symbol: item.symbol || 'UNKNOWN',
+        priceUsd:
+          item.priceUsd?.toString() ||
+          item.currentPrice?.toString() ||
+          '0.0001',
+        volume24h: item.volume24h || 0,
+        marketCap: item.marketCap || 0,
+        riskScore: item.riskScore || 80,
+        recommendation: item.recommendation || 'Hold',
+        imageUrl: item.imageUrl || null,
+        potentialGain:
+          item.potentialGain || `${Math.floor(Math.random() * 50) + 10}%`,
+        confidence: item.confidence || 'Medium',
+        timeframe: item.timeframe || '24h',
       }))
 
       setTokenAnalysis(mappedTokens)
@@ -239,12 +250,15 @@ export default function DashboardPage() {
       }
 
       setLoading(true)
-      const response = await fetch('http://localhost:3001/token-data/update', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
+      const response = await fetch(
+        'http://localhost:3001/token-data/pumpfun/refresh',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         },
-      })
+      )
 
       if (!response.ok) {
         throw new Error('Failed to force update tokens')
@@ -273,7 +287,7 @@ export default function DashboardPage() {
 
       setLoading(true)
       const response = await fetch(
-        'http://localhost:3001/token-data/expand/popular',
+        'http://localhost:3001/token-data/pumpfun/discover',
         {
           method: 'POST',
           headers: {
@@ -316,10 +330,12 @@ export default function DashboardPage() {
   if (loading && tokenAnalysis.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Card className="w-[350px]">
+        <Card className="w-[350px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg">
           <CardContent className="flex flex-col items-center justify-center p-6">
             <RefreshCw className="h-8 w-8 animate-spin text-primary mb-4" />
-            <p className="text-muted-foreground">Loading token analysis...</p>
+            <p className="text-muted-foreground">
+              Loading Pump.fun memecoins...
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -345,7 +361,10 @@ export default function DashboardPage() {
 
   // Debug logs
   console.log('🐛 Debug - tokensArray length:', tokensArray.length)
-  console.log('🐛 Debug - highPotentialArray length:', highPotentialArray.length)
+  console.log(
+    '🐛 Debug - highPotentialArray length:',
+    highPotentialArray.length,
+  )
 
   const totalTokens = tokensArray.length
   const highRiskTokens = tokensArray.filter(
@@ -405,7 +424,7 @@ export default function DashboardPage() {
     if (value >= 1000000) {
       return (value / 1000000).toFixed(2) + 'M'
     } else if (value >= 1000) {
-      return (value / 1000).toFixed(2) + 'K'  
+      return (value / 1000).toFixed(2) + 'K'
     } else if (value < 0.01) {
       return value.toFixed(6)
     }
@@ -422,7 +441,7 @@ export default function DashboardPage() {
               Token Analyzer Dashboard
             </h1>
             <p className="text-muted-foreground mt-2">
-              Real-time analysis of Pump.fun tokens
+              Real-time Pump.fun memecoin discovery and analysis
             </p>
           </div>
           <div className="flex gap-2 mt-4 sm:mt-0">
@@ -472,7 +491,7 @@ export default function DashboardPage() {
         {/* Stats Cards */}
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="border-blue-800/20 bg-gradient-to-br from-blue-900/10 to-blue-800/5">
+          <Card className="border-blue-800/20 bg-gradient-to-br from-blue-900/10 to-blue-800/5 dark:from-gray-700/20 dark:to-gray-600/10 dark:border-gray-600/30">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Total Tokens
@@ -487,7 +506,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-red-800/20 bg-gradient-to-br from-red-900/10 to-red-800/5">
+          <Card className="border-red-800/20 bg-gradient-to-br from-red-900/10 to-red-800/5 dark:from-gray-700/20 dark:to-gray-600/10 dark:border-gray-600/30">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">High Risk</CardTitle>
               <AlertTriangle className="h-4 w-4 text-red-400" />
@@ -500,7 +519,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-green-800/20 bg-gradient-to-br from-green-900/10 to-green-800/5">
+          <Card className="border-green-800/20 bg-gradient-to-br from-green-900/10 to-green-800/5 dark:from-gray-700/20 dark:to-gray-600/10 dark:border-gray-600/30">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">24h Volume</CardTitle>
               <Activity className="h-4 w-4 text-green-400" />
@@ -513,7 +532,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-purple-800/20 bg-gradient-to-br from-purple-900/10 to-purple-800/5">
+          <Card className="border-purple-800/20 bg-gradient-to-br from-purple-900/10 to-purple-800/5 dark:from-gray-700/20 dark:to-gray-600/10 dark:border-gray-600/30">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Average Price
@@ -529,14 +548,20 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Token Analysis Tabs */}
+        {/* Pump.fun Memecoin Analysis */}
         <Tabs defaultValue="high-potential" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="high-potential" className="flex items-center gap-2">
+            <TabsTrigger
+              value="high-potential"
+              className="flex items-center gap-2"
+            >
               <Zap className="h-4 w-4" />
-              High Potential ({highPotentialArray.length})
+              🔥 Hot Memecoins ({highPotentialArray.length})
             </TabsTrigger>
-            <TabsTrigger value="complete-analysis" className="flex items-center gap-2">
+            <TabsTrigger
+              value="complete-analysis"
+              className="flex items-center gap-2"
+            >
               <BarChart3 className="h-4 w-4" />
               Complete Analysis ({tokensArray.length})
             </TabsTrigger>
@@ -544,14 +569,15 @@ export default function DashboardPage() {
 
           <TabsContent value="high-potential" className="mt-6">
             {highPotentialArray.length > 0 ? (
-              <Card>
+              <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Zap className="h-5 w-5 text-yellow-500" />
-                    High Potential Tokens
+                    🚀 Trending Pump.fun Memecoins
                   </CardTitle>
                   <CardDescription>
-                    Tokens with highest growth potential based on pattern analysis
+                    Tokens with highest growth potential based on pattern
+                    analysis
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -566,8 +592,118 @@ export default function DashboardPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {highPotentialArray.map((token) => (
-                        <TableRow 
+                      {highPotentialArray
+                        .filter((token) => token && token.address)
+                        .map((token) => (
+                          <TableRow
+                            key={token.address}
+                            className="cursor-pointer hover:bg-muted/50 transition-colors"
+                            onClick={() => handleTokenClick(token.address)}
+                          >
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                {token.imageUrl ? (
+                                  <img
+                                    src={token.imageUrl}
+                                    alt={`${token.symbol} logo`}
+                                    className="w-8 h-8 rounded-full bg-gray-700"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                                    {token.symbol.slice(0, 2)}
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="font-medium">
+                                    {token.name}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {token.symbol}
+                                  </div>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                {formatNumber(parseFloat(token.priceUsd))}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={getRiskBadgeVariant(token.riskScore)}
+                              >
+                                {getRiskLabel(token.riskScore)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-green-500 font-medium">
+                                {token.potentialGain}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                {token.timeframe}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  token.recommendation?.includes('BUY')
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                                    : token.recommendation?.includes('HOLD')
+                                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                                      : token.recommendation?.includes(
+                                            'MONITOR',
+                                          )
+                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                                        : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+                                }`}
+                              >
+                                {token.recommendation}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg">
+                <CardContent className="flex items-center justify-center py-8">
+                  <div className="text-center text-muted-foreground">
+                    No trending memecoins found. Try refreshing!
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="complete-analysis" className="mt-6">
+            <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Complete Memecoin Analysis
+                </CardTitle>
+                <CardDescription>
+                  Detailed risk analysis and recommendations for all tokens
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Token</TableHead>
+                      <TableHead>Price (USD)</TableHead>
+                      <TableHead>24h Volume (USD)</TableHead>
+                      <TableHead>Risk</TableHead>
+                      <TableHead>Recommendation</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tokensArray
+                      .filter((token) => token && token.address)
+                      .map((token) => (
+                        <TableRow
                           key={token.address}
                           className="cursor-pointer hover:bg-muted/50 transition-colors"
                           onClick={() => handleTokenClick(token.address)}
@@ -594,20 +730,17 @@ export default function DashboardPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div>{formatNumber(parseFloat(token.priceUsd))}</div>
+                            <div>{formatNumber(token.currentPrice)}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={getRiskBadgeVariant(token.riskScore)}>
+                            <div>{formatCurrency(token.volume24h || 0)}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={getRiskBadgeVariant(token.riskScore)}
+                            >
                               {getRiskLabel(token.riskScore)}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-green-500 font-medium">
-                              {token.potentialGain}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {token.timeframe}
-                            </div>
                           </TableCell>
                           <TableCell>
                             <span
@@ -626,99 +759,6 @@ export default function DashboardPage() {
                           </TableCell>
                         </TableRow>
                       ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="flex items-center justify-center py-8">
-                  <div className="text-center text-muted-foreground">
-                    No high potential tokens found
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="complete-analysis" className="mt-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
-                  Complete Token Analysis
-                </CardTitle>
-                <CardDescription>
-                  Detailed risk analysis and recommendations for all tokens
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Token</TableHead>
-                      <TableHead>Price (USD)</TableHead>
-                      <TableHead>24h Volume (USD)</TableHead>
-                      <TableHead>Risk</TableHead>
-                      <TableHead>Recommendation</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {tokensArray.map((token) => (
-                      <TableRow 
-                        key={token.address}
-                        className="cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() => handleTokenClick(token.address)}
-                      >
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            {token.imageUrl ? (
-                              <img
-                                src={token.imageUrl}
-                                alt={`${token.symbol} logo`}
-                                className="w-8 h-8 rounded-full bg-gray-700"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-xs font-bold text-white">
-                                {token.symbol.slice(0, 2)}
-                              </div>
-                            )}
-                            <div>
-                              <div className="font-medium">{token.name}</div>
-                              <div className="text-sm text-muted-foreground">
-                                {token.symbol}
-                              </div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div>{formatNumber(token.currentPrice)}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div>{formatCurrency(token.volume24h || 0)}</div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getRiskBadgeVariant(token.riskScore)}>
-                            {getRiskLabel(token.riskScore)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              token.recommendation?.includes('BUY')
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                                : token.recommendation?.includes('HOLD')
-                                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
-                                  : token.recommendation?.includes('MONITOR')
-                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
-                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
-                            }`}
-                          >
-                            {token.recommendation}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
                   </TableBody>
                 </Table>
               </CardContent>
