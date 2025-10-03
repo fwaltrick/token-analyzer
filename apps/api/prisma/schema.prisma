@@ -14,6 +14,10 @@ model Token {
   symbol      String
   description String?
   imageUrl    String?
+  uri         String?  // IPFS metadata URL
+  twitter     String?  // Twitter handle
+  telegram    String?  // Telegram channel
+  website     String?  // Website URL
   priceUsd    Float
   marketCap   Float
   volume24h   Float

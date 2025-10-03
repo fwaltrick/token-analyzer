@@ -41,6 +41,12 @@ export function Sidebar({ className }: SidebarProps) {
       description: 'Real-time Pump.fun analysis',
     },
     {
+      name: 'Token Details',
+      href: '/token-details',
+      icon: BarChart3,
+      description: 'Detailed token analysis',
+    },
+    {
       name: 'High Potential',
       href: '/high-potential',
       icon: TrendingUp,

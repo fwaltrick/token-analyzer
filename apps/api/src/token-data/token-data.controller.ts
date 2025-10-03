@@ -6,27 +6,48 @@ export class TokenDataController {
   constructor(private readonly tokenDataService: TokenDataService) {}
 
   @Get()
-  getTokens() {
-    return this.tokenDataService.getAllTokens();
+  getTokens(
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '50',
+    @Query('sortBy') sortBy: string = 'createdAt',
+    @Query('sortOrder') sortOrder: string = 'desc',
+  ) {
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 50;
+    return this.tokenDataService.getAllTokens(
+      pageNum,
+      limitNum,
+      sortBy,
+      sortOrder,
+    );
   }
 
   // === PUMP.FUN SPECIFIC ENDPOINTS ===
 
   @Get('pumpfun/tokens')
-  async getPumpFunTokens(@Query('limit') limit: string = '50') {
+  async getPumpFunTokens(
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '50',
+    @Query('sortBy') sortBy: string = 'createdAt',
+    @Query('sortOrder') sortOrder: string = 'desc',
+  ) {
     try {
-      const tokens = await this.tokenDataService.getAllTokens();
+      const pageNum = parseInt(page) || 1;
       const limitNumber = parseInt(limit) || 50;
 
-      // All tokens are now Pump.fun memecoins
-      const pumpfunTokens = tokens.slice(0, limitNumber);
+      const result = await this.tokenDataService.getAllTokens(
+        pageNum,
+        limitNumber,
+        sortBy,
+        sortOrder,
+      );
 
       return {
         success: true,
-        data: pumpfunTokens,
-        count: pumpfunTokens.length,
+        data: result.tokens,
+        pagination: result.pagination,
         source: 'Pump.fun Memecoins Only',
-        message: `🔥 ${pumpfunTokens.length} Pump.fun memecoins found`,
+        message: `🔥 ${result.tokens.length} Pump.fun memecoins found (page ${result.pagination.page}/${result.pagination.totalPages})`,
       };
     } catch (error) {
       return {
@@ -140,6 +161,22 @@ export class TokenDataController {
         success: false,
         error: error.message,
         data: null,
+      };
+    }
+  }
+
+  @Post('cleanup')
+  async manualCleanup() {
+    try {
+      await this.tokenDataService.manualCleanupOldTokens();
+      return {
+        success: true,
+        message: 'Token cleanup completed successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
       };
     }
   }

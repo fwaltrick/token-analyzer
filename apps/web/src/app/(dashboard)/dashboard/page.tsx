@@ -22,31 +22,28 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  TrendingUp,
-  TrendingDown,
   DollarSign,
   Activity,
   AlertTriangle,
   Zap,
   BarChart3,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
-import TokenDetailsModal from '@/components/TokenDetailsModal'
 
-interface TokenData {
+interface TokenAnalysis {
   address: string
   name: string
   symbol: string
   currentPrice: number
-  priceChange24h: number
   volume24h?: number
   marketCap?: number
-  riskScore: number
-  recommendation: string
-  patterns: any
+  priceChange24h?: number
+  patterns?: Record<string, unknown>
+  riskScore?: number
+  recommendation?: string
   imageUrl?: string
-  potentialScore?: number
-  reasons?: string[]
 }
 
 interface HighPotentialToken {
@@ -84,15 +81,6 @@ interface ApiTokenData {
   }
 }
 
-interface ApiResponse {
-  success: boolean
-  message: string
-  total_tokens: number
-  high_potential: number
-  risky: number
-  data: ApiTokenData[]
-}
-
 export default function DashboardPage() {
   const [tokenAnalysis, setTokenAnalysis] = useState<TokenAnalysis[]>([])
   const [highPotentialTokens, setHighPotentialTokens] = useState<
@@ -100,12 +88,16 @@ export default function DashboardPage() {
   >([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalDbTokens, setTotalDbTokens] = useState(0)
+  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortOrder, setSortOrder] = useState('desc')
 
   // Token Details Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedTokenAddress, setSelectedTokenAddress] = useState<
-    string | null
-  >(null)
 
   const supabase = createClient()
 
@@ -149,14 +141,17 @@ export default function DashboardPage() {
         throw new Error('Not authenticated')
       }
 
-      const response = await fetch(
-        'http://localhost:3001/token-data/pumpfun/tokens',
-        {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
+      const url = new URL('http://localhost:3001/token-data/pumpfun/tokens')
+      url.searchParams.append('page', currentPage.toString())
+      url.searchParams.append('limit', pageSize.toString())
+      url.searchParams.append('sortBy', sortBy)
+      url.searchParams.append('sortOrder', sortOrder)
+
+      const response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
         },
-      )
+      })
 
       if (!response.ok) {
         throw new Error('Failed to fetch Pump.fun memecoins')
@@ -169,7 +164,7 @@ export default function DashboardPage() {
       console.error('Error fetching high potential tokens:', error)
       throw error
     }
-  }, [supabase])
+  }, [supabase, currentPage, pageSize, sortBy, sortOrder])
 
   const refreshData = useCallback(async () => {
     setLoading(true)
@@ -188,47 +183,55 @@ export default function DashboardPage() {
         highPotentialResponse?.success && highPotentialResponse?.data
           ? highPotentialResponse.data
           : highPotentialResponse?.tokens || []
+      
+      // Extract pagination info
+      if (highPotentialResponse?.pagination) {
+        setTotalPages(highPotentialResponse.pagination.totalPages)
+        setTotalDbTokens(highPotentialResponse.pagination.total)
+      }
 
       // Map the API response to our component interfaces
-      const mappedTokens = (
-        Array.isArray(analysisData) ? analysisData : []
-      ).map((item: any) => ({
-        address: item.address || item.token?.address || 'unknown',
-        name: item.name || item.token?.name || 'Unknown Token',
-        symbol: item.symbol || item.token?.symbol || 'UNKNOWN',
-        currentPrice: item.priceUsd || item.token?.priceUsd || 0,
-        priceChange24h: Math.random() * 20 - 10, // Simulated for MVP (-10% to +10%)
-        volume24h: item.volume24h || item.token?.volume24h || 0,
-        marketCap: item.marketCap || item.token?.marketCap || 0,
-        riskScore:
-          item.riskScore ||
-          (item.analysis ? 100 - item.analysis.overall_score : 80),
-        recommendation:
-          item.recommendation || item.analysis?.recommendation || 'Hold',
-        patterns: {},
-        imageUrl: item.imageUrl || item.token?.imageUrl || null,
-      }))
+      const mappedTokens = (Array.isArray(analysisData) ? analysisData : [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((item: any) => ({
+          address: item.address || item.token?.address || 'unknown',
+          name: item.name || item.token?.name || 'Unknown Token',
+          symbol: item.symbol || item.token?.symbol || 'UNKNOWN',
+          currentPrice: item.priceUsd || item.token?.priceUsd || 0,
+          priceChange24h: Math.random() * 20 - 10, // Simulated for MVP (-10% to +10%)
+          volume24h: item.volume24h || item.token?.volume24h || 0,
+          marketCap: item.marketCap || item.token?.marketCap || 0,
+          riskScore:
+            item.riskScore ||
+            (item.analysis ? 100 - item.analysis.overall_score : 80),
+          recommendation:
+            item.recommendation || item.analysis?.recommendation || 'Hold',
+          patterns: {},
+          imageUrl: item.imageUrl || item.token?.imageUrl || null,
+        }))
 
       const mappedHighPotential = (
         Array.isArray(highPotentialData) ? highPotentialData : []
-      ).map((item: any) => ({
-        address: item.address || 'unknown',
-        name: item.name || 'Unknown Token',
-        symbol: item.symbol || 'UNKNOWN',
-        priceUsd:
-          item.priceUsd?.toString() ||
-          item.currentPrice?.toString() ||
-          '0.0001',
-        volume24h: item.volume24h || 0,
-        marketCap: item.marketCap || 0,
-        riskScore: item.riskScore || 80,
-        recommendation: item.recommendation || 'Hold',
-        imageUrl: item.imageUrl || null,
-        potentialGain:
-          item.potentialGain || `${Math.floor(Math.random() * 50) + 10}%`,
-        confidence: item.confidence || 'Medium',
-        timeframe: item.timeframe || '24h',
-      }))
+      )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((item: any) => ({
+          address: item.address || 'unknown',
+          name: item.name || 'Unknown Token',
+          symbol: item.symbol || 'UNKNOWN',
+          priceUsd:
+            item.priceUsd?.toString() ||
+            item.currentPrice?.toString() ||
+            '0.0001',
+          volume24h: item.volume24h || 0,
+          marketCap: item.marketCap || 0,
+          riskScore: item.riskScore || 80,
+          recommendation: item.recommendation || 'Hold',
+          imageUrl: item.imageUrl || null,
+          potentialGain:
+            item.potentialGain || `${Math.floor(Math.random() * 50) + 10}%`,
+          confidence: item.confidence || 'Medium',
+          timeframe: item.timeframe || '24h',
+        }))
 
       setTokenAnalysis(mappedTokens)
       setHighPotentialTokens(mappedHighPotential)
@@ -313,19 +316,15 @@ export default function DashboardPage() {
   }, [supabase, refreshData])
 
   // Function to handle token row clicks
-  const handleTokenClick = useCallback((address: string) => {
-    setSelectedTokenAddress(address)
-    setIsModalOpen(true)
-  }, [])
-
-  const handleCloseModal = useCallback(() => {
-    setIsModalOpen(false)
-    setSelectedTokenAddress(null)
-  }, [])
 
   useEffect(() => {
     refreshData()
   }, [refreshData])
+
+  // Refresh data when pagination changes
+  useEffect(() => {
+    refreshData()
+  }, [currentPage, pageSize, sortBy, sortOrder, refreshData])
 
   if (loading && tokenAnalysis.length === 0) {
     return (
@@ -368,7 +367,7 @@ export default function DashboardPage() {
 
   const totalTokens = tokensArray.length
   const highRiskTokens = tokensArray.filter(
-    (token) => token.riskScore > 70,
+    (token) => (token.riskScore || 0) > 70,
   ).length
   const totalVolume = tokensArray.reduce(
     (sum, token) => sum + (token.volume24h || 0),
@@ -394,21 +393,6 @@ export default function DashboardPage() {
     if (riskScore <= 6) return 'Medium'
     if (riskScore <= 8) return 'High'
     return 'Very High'
-  }
-
-  const getRiskBadgeClassName = (riskScore: number): string => {
-    if (riskScore > 70) return 'bg-red-600 text-red-50 hover:bg-red-700'
-    if (riskScore > 40)
-      return 'bg-yellow-600 text-yellow-50 hover:bg-yellow-700'
-    return 'bg-green-600 text-green-50 hover:bg-green-700'
-  }
-
-  const getPotentialBadgeClassName = (score: number): string => {
-    if (score >= 80)
-      return 'bg-emerald-600 text-emerald-50 hover:bg-emerald-700'
-    if (score >= 60) return 'bg-green-600 text-green-50 hover:bg-green-700'
-    if (score >= 40) return 'bg-blue-600 text-blue-50 hover:bg-blue-700'
-    return 'bg-gray-600 text-gray-50 hover:bg-gray-700'
   }
 
   const formatCurrency = (value: number) => {
@@ -571,14 +555,39 @@ export default function DashboardPage() {
             {highPotentialArray.length > 0 ? (
               <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-yellow-500" />
-                    🚀 Trending Pump.fun Memecoins
-                  </CardTitle>
-                  <CardDescription>
-                    Tokens with highest growth potential based on pattern
-                    analysis
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Zap className="h-5 w-5 text-yellow-500" />
+                        🚀 Trending Pump.fun Memecoins
+                      </CardTitle>
+                      <CardDescription>
+                        Tokens with highest growth potential based on pattern
+                        analysis
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800"
+                      >
+                        <option value="createdAt">Date Created</option>
+                        <option value="updatedAt">Last Updated</option>
+                        <option value="volume24h">24h Volume</option>
+                        <option value="marketCap">Market Cap</option>
+                        <option value="priceUsd">Price</option>
+                        <option value="name">Name</option>
+                        <option value="symbol">Symbol</option>
+                      </select>
+                      <button
+                        onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                        className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        {sortOrder === 'asc' ? '↑' : '↓'}
+                      </button>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -598,7 +607,9 @@ export default function DashboardPage() {
                           <TableRow
                             key={token.address}
                             className="cursor-pointer hover:bg-muted/50 transition-colors"
-                            onClick={() => handleTokenClick(token.address)}
+                            onClick={() =>
+                              (window.location.href = `/token-details?address=${token.address}`)
+                            }
                           >
                             <TableCell>
                               <div className="flex items-center gap-3">
@@ -665,6 +676,39 @@ export default function DashboardPage() {
                     </TableBody>
                   </Table>
                 </CardContent>
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Showing page {currentPage} of {totalPages} ({totalDbTokens} total tokens)
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          {currentPage} / {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                          disabled={currentPage === totalPages}
+                        >
+                          Next
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </Card>
             ) : (
               <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg">
@@ -706,7 +750,9 @@ export default function DashboardPage() {
                         <TableRow
                           key={token.address}
                           className="cursor-pointer hover:bg-muted/50 transition-colors"
-                          onClick={() => handleTokenClick(token.address)}
+                          onClick={() =>
+                            (window.location.href = `/token-details?address=${token.address}`)
+                          }
                         >
                           <TableCell>
                             <div className="flex items-center gap-3">
@@ -737,9 +783,11 @@ export default function DashboardPage() {
                           </TableCell>
                           <TableCell>
                             <Badge
-                              variant={getRiskBadgeVariant(token.riskScore)}
+                              variant={getRiskBadgeVariant(
+                                token.riskScore || 0,
+                              )}
                             >
-                              {getRiskLabel(token.riskScore)}
+                              {getRiskLabel(token.riskScore || 0)}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -766,13 +814,6 @@ export default function DashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
-
-      {/* Token Details Modal */}
-      <TokenDetailsModal
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        tokenAddress={selectedTokenAddress}
-      />
     </div>
   )
 }
