@@ -88,7 +88,7 @@ export default function DashboardPage() {
   >([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -183,7 +183,7 @@ export default function DashboardPage() {
         highPotentialResponse?.success && highPotentialResponse?.data
           ? highPotentialResponse.data
           : highPotentialResponse?.tokens || []
-      
+
       // Extract pagination info
       if (highPotentialResponse?.pagination) {
         setTotalPages(highPotentialResponse.pagination.totalPages)
@@ -581,7 +581,9 @@ export default function DashboardPage() {
                         <option value="symbol">Symbol</option>
                       </select>
                       <button
-                        onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                        onClick={() =>
+                          setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+                        }
                         className="px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
                         {sortOrder === 'asc' ? '↑' : '↓'}
@@ -681,13 +683,16 @@ export default function DashboardPage() {
                   <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
                     <div className="flex items-center justify-between">
                       <div className="text-sm text-muted-foreground">
-                        Showing page {currentPage} of {totalPages} ({totalDbTokens} total tokens)
+                        Showing page {currentPage} of {totalPages} (
+                        {totalDbTokens} total tokens)
                       </div>
                       <div className="flex items-center space-x-2">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                          onClick={() =>
+                            setCurrentPage(Math.max(1, currentPage - 1))
+                          }
                           disabled={currentPage === 1}
                         >
                           <ChevronLeft className="h-4 w-4" />
@@ -699,7 +704,11 @@ export default function DashboardPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                          onClick={() =>
+                            setCurrentPage(
+                              Math.min(totalPages, currentPage + 1),
+                            )
+                          }
                           disabled={currentPage === totalPages}
                         >
                           Next
