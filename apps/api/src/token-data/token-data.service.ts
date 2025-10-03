@@ -106,53 +106,130 @@ interface PumpFunToken {
 export class TokenDataService implements OnModuleInit {
   private readonly logger = new Logger(TokenDataService.name);
 
-  // Multiple API sources for Pump.fun data (no Cloudflare)
-  private readonly API_SOURCES = [
-    {
-      name: 'DexScreener',
-      baseUrl: 'https://api.dexscreener.com/latest/dex',
-      endpoint: '/pairs/solana',
-    },
-    {
-      name: 'CoinGecko',
-      baseUrl: 'https://api.coingecko.com/api/v3',
-      endpoint:
-        '/coins/markets?vs_currency=usd&category=meme-token&order=market_cap_desc&per_page=50&page=1',
-    },
-    {
-      name: 'Jupiter',
-      baseUrl: 'https://price.jup.ag/v4',
-      endpoint: '/price?ids=So11111111111111111111111111111111111111112', // SOL price for reference
-    },
-  ];
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
   ) {}
 
+  // Extract IPFS hash from various URL formats
+  private extractIPFSHash(uri: string): string | null {
+    try {
+      // Pattern for IPFS hashes (Qm... or baf...)
+      const ipfsHashRegex = /([Qm][1-9A-HJ-NP-Za-km-z]{44,}|b[A-Za-z2-7]{58,})/;
+      const match = uri.match(ipfsHashRegex);
+      return match ? match[0] : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // Add delay between requests to avoid rate limiting
+  private async delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private async fetchTokenMetadataFromIPFS(
     uri: string,
   ): Promise<TokenMetadata | null> {
     try {
-      this.logger.debug(`🌐 Fetching metadata from IPFS: ${uri}`);
+      this.logger.debug(`🌐 Fetching metadata from: ${uri}`);
 
-      const response = await firstValueFrom(
-        this.httpService.get(uri, {
-          timeout: 5000,
-          headers: {
-            Accept: 'application/json',
-          },
-        }),
-      );
+      // Try multiple IPFS gateways and fallback strategies
+      const ipfsHash = this.extractIPFSHash(uri);
+      const urls = [
+        uri, // Original URL
+        // Multiple IPFS gateways to avoid rate limiting
+        ...(ipfsHash
+          ? [
+              `https://ipfs.io/ipfs/${ipfsHash}`,
+              `https://cloudflare-ipfs.com/ipfs/${ipfsHash}`,
+              `https://dweb.link/ipfs/${ipfsHash}`,
+              `https://gateway.ipfs.io/ipfs/${ipfsHash}`,
+              `https://ipfs.infura.io/ipfs/${ipfsHash}`,
+            ]
+          : []),
+        // Conversion fallbacks
+        uri.replace('metadata.rapidlaunch.io', 'ipfs.io/ipfs'),
+        uri.replace(
+          'https://metadata.rapidlaunch.io/metadata/',
+          'https://ipfs.io/ipfs/',
+        ),
+        uri.replace('gateway.pinata.cloud', 'ipfs.io'),
+        uri.replace('gateway.pinata.cloud', 'cloudflare-ipfs.com'),
+      ].filter((url, index, arr) => arr.indexOf(url) === index); // Remove duplicates
 
-      const metadata: TokenMetadata = response.data;
-      this.logger.debug(
-        `📄 Metadata received:`,
-        JSON.stringify(metadata, null, 2),
-      );
+      let lastError: any = null;
 
-      return metadata;
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        try {
+          // Add delay between requests to avoid rate limiting
+          if (i > 0) {
+            await this.delay(500 + Math.random() * 1000); // Random delay 500-1500ms
+          }
+
+          this.logger.debug(`🔄 Trying URL ${i + 1}/${urls.length}: ${url}`);
+
+          const response = await firstValueFrom(
+            this.httpService.get(url, {
+              timeout: 5000, // Longer timeout for IPFS
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': 'Mozilla/5.0 (compatible; TokenAnalyzer/1.0)',
+                'Cache-Control': 'no-cache',
+              },
+            }),
+          );
+
+          const data = response.data;
+          const metadata: TokenMetadata = {
+            name: typeof data?.name === 'string' ? data.name : undefined,
+            symbol: typeof data?.symbol === 'string' ? data.symbol : undefined,
+            description:
+              typeof data?.description === 'string'
+                ? data.description
+                : undefined,
+            image: typeof data?.image === 'string' ? data.image : undefined,
+            showName:
+              typeof data?.showName === 'boolean' ? data.showName : undefined,
+            createdOn:
+              typeof data?.createdOn === 'string' ? data.createdOn : undefined,
+            twitter:
+              typeof data?.twitter === 'string' ? data.twitter : undefined,
+            telegram:
+              typeof data?.telegram === 'string' ? data.telegram : undefined,
+            website:
+              typeof data?.website === 'string' ? data.website : undefined,
+          };
+
+          this.logger.debug(
+            `✅ Successfully fetched metadata from: ${url}`,
+            JSON.stringify(metadata, null, 2),
+          );
+
+          return metadata; // Success - return immediately
+        } catch (error: any) {
+          lastError = error;
+
+          // Handle rate limiting (429) with exponential backoff
+          if (error.response?.status === 429) {
+            const retryDelay = Math.pow(2, i) * 1000; // Exponential backoff
+            this.logger.warn(
+              `⏱️ Rate limited (429) on ${url}, waiting ${retryDelay}ms...`,
+            );
+            await this.delay(retryDelay);
+          } else {
+            this.logger.debug(
+              `❌ Failed to fetch from ${url}: ${error.message}`,
+            );
+          }
+
+          continue; // Try next URL
+        }
+      }
+
+      // All URLs failed
+      throw lastError || new Error('All metadata URLs failed');
     } catch (error: any) {
       this.logger.warn(
         `⚠️ Failed to fetch metadata from ${uri}: ${error.message}`,
@@ -161,12 +238,141 @@ export class TokenDataService implements OnModuleInit {
     }
   }
 
+  // Process IPFS metadata asynchronously and update database
+  private async processIPFSMetadataAsync(
+    tokenAddress: string,
+    ipfsUri: string,
+    symbol: string,
+  ): Promise<void> {
+    try {
+      this.logger.debug(
+        `🔄 Processing IPFS metadata for ${symbol}: ${ipfsUri}`,
+      );
+
+      // Fetch IPFS metadata
+      const ipfsMetadata = await this.fetchTokenMetadataFromIPFS(ipfsUri);
+
+      if (ipfsMetadata) {
+        const updateData: Partial<{
+          name: string;
+          description: string;
+          uri: string;
+          imageUrl: string;
+          twitter: string;
+          telegram: string;
+          website: string;
+        }> = {};
+
+        // Update basic fields if available
+        if (ipfsMetadata.name) updateData.name = ipfsMetadata.name;
+        if (ipfsMetadata.description)
+          updateData.description = ipfsMetadata.description;
+        if (ipfsMetadata.twitter) updateData.twitter = ipfsMetadata.twitter;
+        if (ipfsMetadata.telegram) updateData.telegram = ipfsMetadata.telegram;
+        if (ipfsMetadata.website) updateData.website = ipfsMetadata.website;
+
+        // Validate and set image if available
+        if (ipfsMetadata.image) {
+          this.logger.log(
+            `🖼️ Found image in metadata for ${symbol}: ${ipfsMetadata.image}`,
+          );
+          const isValidImage = await this.validateImageUrl(ipfsMetadata.image);
+          if (isValidImage) {
+            updateData.imageUrl = ipfsMetadata.image;
+            this.logger.log(
+              `✅ IMAGE SAVED: ${symbol} -> ${ipfsMetadata.image}`,
+            );
+          } else {
+            this.logger.warn(
+              `❌ Invalid image for ${symbol}: ${ipfsMetadata.image}`,
+            );
+          }
+        } else {
+          this.logger.debug(
+            `📭 No image field found in metadata for ${symbol}`,
+          );
+        }
+
+        // Update database if we have any data to update
+        if (Object.keys(updateData).length > 0) {
+          try {
+            // First try to update existing token
+            await this.prisma.token.update({
+              where: { address: tokenAddress },
+              data: updateData,
+            });
+
+            this.logger.log(
+              `🎯 Database updated for ${symbol} with IPFS metadata`,
+            );
+          } catch (updateError: unknown) {
+            // If token doesn't exist yet, wait and try again
+            const error = updateError as { code?: string; message?: string };
+            if (error.code === 'P2025') {
+              this.logger.debug(
+                `⏳ Token ${symbol} not found, waiting for creation...`,
+              );
+              await this.delay(2000); // Wait 2 seconds
+
+              try {
+                await this.prisma.token.update({
+                  where: { address: tokenAddress },
+                  data: updateData,
+                });
+                this.logger.log(
+                  `🎯 Database updated for ${symbol} with IPFS metadata (retry successful)`,
+                );
+              } catch (retryError: unknown) {
+                const retryErr = retryError as { message?: string };
+                this.logger.warn(
+                  `⚠️ Failed to update ${symbol} after retry: ${retryErr.message}`,
+                );
+              }
+            } else {
+              throw updateError; // Re-throw other errors
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `⚠️ Failed to process IPFS metadata for ${symbol}: ${error.message}`,
+      );
+    }
+  }
+
+  // Validate if image URL is accessible and returns valid image
+  private async validateImageUrl(imageUrl: string): Promise<boolean> {
+    try {
+      this.logger.debug(`🖼️ Validating image: ${imageUrl}`);
+
+      const response = await firstValueFrom(
+        this.httpService.head(imageUrl, {
+          timeout: 3000,
+          headers: {
+            'User-Agent': 'TokenAnalyzer/1.0',
+          },
+        }),
+      );
+
+      const contentType = response.headers['content-type'] || '';
+      const isValidImage =
+        contentType.startsWith('image/') && response.status === 200;
+
+      this.logger.debug(
+        `🖼️ Image validation result for ${imageUrl}: ${isValidImage ? '✅ Valid' : '❌ Invalid'} (${contentType})`,
+      );
+      return isValidImage;
+    } catch (error: any) {
+      this.logger.debug(
+        `🖼️ Image validation failed for ${imageUrl}: ${error.message}`,
+      );
+      return false;
+    }
+  }
+
   async onModuleInit() {
-    this.logger.log(
-      '🚀 Starting TokenDataService - Pump.fun API Integration...',
-    );
-    // Fetch fresh data from API without clearing existing tokens
-    await this.fetchAndStoreLatestTokens();
+    this.logger.log('🚀 TokenDataService initialized');
   }
 
   @Cron('*/10 * * * *')
@@ -182,10 +388,81 @@ export class TokenDataService implements OnModuleInit {
     await this.clearOldTokens();
   }
 
+  // Processa tokens com imagens faltando a cada 30 minutos
+  @Cron('*/30 * * * *')
+  async handleMissingImagesProcessing() {
+    this.logger.log('🖼️ Processing tokens with missing images...');
+    await this.processTokensWithMissingImages();
+  }
+
   // Método público para limpeza manual via endpoint
   async manualCleanupOldTokens() {
     this.logger.log('🧹 Manual token cleanup requested...');
     await this.clearOldTokens();
+  }
+
+  // Processar tokens existentes que têm URI mas não têm imagem
+  async processTokensWithMissingImages() {
+    try {
+      const tokensWithoutImages = await this.prisma.token.findMany({
+        where: {
+          AND: [
+            { uri: { not: null } },
+            { uri: { not: '' } },
+            {
+              OR: [{ imageUrl: null }, { imageUrl: '' }],
+            },
+          ],
+        },
+        take: 20, // Process in batches
+      });
+
+      this.logger.log(
+        `🖼️ Found ${tokensWithoutImages.length} tokens without images but with URI`,
+      );
+
+      for (const token of tokensWithoutImages) {
+        if (token.uri) {
+          try {
+            const ipfsMetadata = await this.fetchTokenMetadataFromIPFS(
+              token.uri,
+            );
+
+            if (
+              ipfsMetadata &&
+              (ipfsMetadata.image ||
+                ipfsMetadata.description ||
+                ipfsMetadata.twitter)
+            ) {
+              await this.prisma.token.update({
+                where: { id: token.id },
+                data: {
+                  imageUrl: ipfsMetadata.image || token.imageUrl,
+                  description: ipfsMetadata.description || token.description,
+                  twitter: ipfsMetadata.twitter || token.twitter,
+                  telegram: ipfsMetadata.telegram || token.telegram,
+                  website: ipfsMetadata.website || token.website,
+                },
+              });
+
+              this.logger.log(
+                `✅ Updated ${token.symbol} with IPFS metadata - Image: ${ipfsMetadata.image ? 'Added' : 'Not found'}`,
+              );
+            }
+          } catch (error) {
+            this.logger.debug(`❌ Failed to process IPFS for ${token.symbol}`);
+          }
+        }
+      }
+
+      return { processed: tokensWithoutImages.length };
+    } catch (error) {
+      this.logger.error(
+        '❌ Error processing tokens with missing images:',
+        error,
+      );
+      return { processed: 0 };
+    }
   }
 
   private async fetchDirectFromPumpFun(): Promise<any[]> {
@@ -259,11 +536,8 @@ export class TokenDataService implements OnModuleInit {
                   ? message.mint.substring(0, 6).toUpperCase()
                   : 'UNK');
 
-              const extractedImage =
-                message.imageUri ||
-                message.image ||
-                message.metadata?.image ||
-                '';
+              // Don't try to extract image from main object - it's in the URI metadata
+              const extractedImage = '';
 
               // Only add if we have valid data and it's not generic
               if (
@@ -315,61 +589,22 @@ export class TokenDataService implements OnModuleInit {
                     message.telegram || message.metadata?.telegram || '',
                 };
 
-                // Try to fetch IPFS metadata asynchronously and update the token in database
-                if (message.uri) {
-                  this.fetchTokenMetadataFromIPFS(message.uri)
-                    .then((ipfsMetadata) => {
-                      if (ipfsMetadata) {
-                        // Update the token data object
-                        tokenData.name = ipfsMetadata.name || tokenData.name;
-                        tokenData.symbol =
-                          ipfsMetadata.symbol || tokenData.symbol;
-                        tokenData.image_uri =
-                          ipfsMetadata.image || tokenData.image_uri;
-                        tokenData.description =
-                          ipfsMetadata.description || tokenData.description;
-
-                        // Update the token in the database after it's been saved
-                        setTimeout(() => {
-                          this.prisma.token
-                            .update({
-                              where: { address: tokenData.mint },
-                              data: {
-                                imageUrl: ipfsMetadata.image || '',
-                                description:
-                                  ipfsMetadata.description ||
-                                  `${tokenData.name} - Pump.fun memecoin`,
-                                twitter: ipfsMetadata.twitter || null,
-                                telegram: ipfsMetadata.telegram || null,
-                                website: ipfsMetadata.website || null,
-                              },
-                            })
-                            .then(() => {
-                              this.logger.debug(
-                                `🔄 Updated token ${tokenData.symbol} in database with IPFS metadata`,
-                              );
-                            })
-                            .catch(() => {
-                              // Ignore database update errors
-                            });
-                        }, 2000); // Wait 2 seconds to ensure token is saved first
-
-                        this.logger.debug(
-                          `🔄 Updated token ${tokenData.symbol} with IPFS metadata`,
-                        );
-                      }
-                    })
-                    .catch(() => {
-                      // Ignore IPFS fetch errors
-                    });
-                }
-
+                // Store token immediately, then process IPFS asynchronously but update database
                 tokens.push(tokenData);
                 messageCount++;
 
                 this.logger.log(
                   `📡 New token: ${tokenData.name} (${tokenData.symbol}) - ${messageCount}/${maxMessages}`,
                 );
+
+                // Process IPFS metadata asynchronously and update database
+                if (message.uri) {
+                  void this.processIPFSMetadataAsync(
+                    tokenData.mint,
+                    message.uri,
+                    tokenData.symbol,
+                  );
+                }
               } else {
                 this.logger.debug(
                   `Skipped incomplete/generic token: ${extractedName} (${extractedSymbol})`,
@@ -452,6 +687,15 @@ export class TokenDataService implements OnModuleInit {
               this.logger.log(
                 `✅ Collected ${tokens.length} real-time tokens from Pump.fun WebSocket`,
               );
+              this.logger.debug(
+                `📋 Token list preview:`,
+                tokens.slice(0, 3).map((t) => ({
+                  symbol: t.symbol,
+                  mint: t.mint,
+                  imageUrl: t.image_uri,
+                  uri: t.uri,
+                })),
+              );
               resolve(tokens);
             }
           } catch (parseError) {
@@ -510,25 +754,8 @@ export class TokenDataService implements OnModuleInit {
         throw new Error('Invalid Jupiter response');
       }
 
-      // Filter for tokens that might be memecoins (small supply, recent)
-      const memeTokens = allTokens
-        .filter(
-          (token: any) =>
-            token.address &&
-            token.symbol &&
-            token.name &&
-            token.address.length > 30 &&
-            // Look for memecoin patterns
-            token.symbol.length <= 10 &&
-            (token.name.toLowerCase().includes('dog') ||
-              token.name.toLowerCase().includes('cat') ||
-              token.name.toLowerCase().includes('pepe') ||
-              token.name.toLowerCase().includes('wojak') ||
-              token.name.toLowerCase().includes('doge') ||
-              token.symbol.toLowerCase().includes('meme') ||
-              token.tags?.includes('meme')),
-        )
-        .slice(0, 30);
+      // Use first 30 tokens from the API (no hardcoded filtering)
+      const memeTokens = allTokens.slice(0, 30);
 
       return memeTokens.map((token: any) => ({
         mint: token.address,
@@ -551,40 +778,6 @@ export class TokenDataService implements OnModuleInit {
     } catch (error: any) {
       throw new Error(`Solana Explorer API failed: ${error.message}`);
     }
-  }
-
-  private async fetchViaPuppeteer(): Promise<any[]> {
-    // This would require puppeteer installation, for now throw error
-    throw new Error(
-      'Puppeteer scraping not implemented - requires additional dependencies',
-    );
-  }
-
-  private formatPumpFunTokens(tokens: any[]): any[] {
-    return tokens
-      .filter(
-        (token: any) =>
-          token.mint && token.name && token.symbol && token.mint.length > 30, // Valid Solana address
-      )
-      .slice(0, 30)
-      .map((token: any) => ({
-        mint: token.mint,
-        name: token.name,
-        symbol: token.symbol,
-        description:
-          token.description || `${token.name} - Launched on Pump.fun`,
-        image_uri: token.image_uri || '',
-        market_cap: token.usd_market_cap || token.market_cap || 0,
-        usd_market_cap: token.usd_market_cap || token.market_cap || 0,
-        virtual_sol_reserves: token.virtual_sol_reserves || 100,
-        virtual_token_reserves: token.virtual_token_reserves || 1000000,
-        creator: token.creator || '',
-        created_timestamp: token.created_timestamp || Date.now(),
-        complete: token.complete || false,
-        website: token.website || '',
-        twitter: token.twitter || '',
-        telegram: token.telegram || '',
-      }));
   }
 
   private async fetchFromDexScreenerPumpFun(): Promise<any[]> {
@@ -667,27 +860,16 @@ export class TokenDataService implements OnModuleInit {
           throw new Error('No tokens returned from direct API');
         }
       } catch (pumpError) {
-        this.logger.warn('Direct Pump.fun failed, trying proxy approach...');
+        this.logger.warn('Direct Pump.fun failed, trying Solana Explorer...');
 
         try {
-          tokens = await this.fetchViaPuppeteer();
-          this.logger.log(
-            `✅ Puppeteer scraper: Found ${tokens.length} live tokens`,
+          tokens = await this.fetchFromSolanaExplorer();
+          this.logger.log(`✅ Solana Explorer: Found ${tokens.length} tokens`);
+        } catch (explorerError) {
+          this.logger.error(
+            'All real APIs failed - no fallback data available',
           );
-        } catch (puppeteerError) {
-          this.logger.warn('Puppeteer failed, trying alternative APIs...');
-
-          try {
-            tokens = await this.fetchFromSolanaExplorer();
-            this.logger.log(
-              `✅ Solana Explorer: Found ${tokens.length} tokens`,
-            );
-          } catch (explorerError) {
-            this.logger.error(
-              'All real APIs failed - no fallback data available',
-            );
-            throw new Error('All token data sources failed');
-          }
+          throw new Error('All token data sources failed');
         }
       }
       if (!tokens || tokens.length === 0) {
@@ -697,29 +879,80 @@ export class TokenDataService implements OnModuleInit {
         return;
       }
 
+      this.logger.log(
+        `🔄 Processing ${tokens.length} tokens for database insertion`,
+      );
+
       for (const token of tokens) {
+        this.logger.debug(`🔍 Checking token: ${token.symbol} (${token.mint})`);
+
         const existingToken = await this.prisma.token.findUnique({
           where: { address: token.mint },
         });
 
         if (!existingToken) {
-          await this.prisma.token.create({
+          this.logger.debug(
+            `➕ New token found: ${token.symbol}, preparing to save...`,
+          );
+          // Try to enhance token data with IPFS metadata before saving
+          let enhancedImageUrl = token.image_uri || '';
+          let enhancedDescription =
+            token.description || `${token.name} - Pump.fun memecoin`;
+          let twitterHandle: string | null = null;
+          let telegramHandle: string | null = null;
+          let websiteUrl: string | null = null;
+
+          // If we have a URI, try to fetch IPFS metadata with short timeout
+          if (token.uri) {
+            try {
+              // Use a quick timeout for synchronous processing
+              const ipfsMetadata = await this.fetchTokenMetadataFromIPFS(
+                token.uri,
+              );
+
+              if (ipfsMetadata && ipfsMetadata.image) {
+                enhancedImageUrl = ipfsMetadata.image;
+                this.logger.debug(
+                  `🎯 Enhanced ${token.symbol} with IPFS image`,
+                );
+              }
+
+              if (ipfsMetadata && ipfsMetadata.description) {
+                enhancedDescription = ipfsMetadata.description;
+              }
+
+              if (ipfsMetadata) {
+                twitterHandle = ipfsMetadata.twitter || null;
+                telegramHandle = ipfsMetadata.telegram || null;
+                websiteUrl = ipfsMetadata.website || null;
+              }
+            } catch (error) {
+              this.logger.debug(
+                `⚡ Quick IPFS fetch failed for ${token.symbol}, will use async fallback`,
+              );
+            }
+          }
+
+          const createdToken = await this.prisma.token.create({
             data: {
               address: token.mint,
               name: token.name,
               symbol: token.symbol,
-              imageUrl: token.image_uri || '',
-              uri: token.uri || null, // Store IPFS metadata URL
-              twitter: null, // Will be populated by IPFS metadata
-              telegram: null, // Will be populated by IPFS metadata
-              website: null, // Will be populated by IPFS metadata
+              imageUrl: enhancedImageUrl,
+              uri: token.uri || null,
+              twitter: twitterHandle,
+              telegram: telegramHandle,
+              website: websiteUrl,
               priceUsd: this.calculateTokenPrice(token),
-              volume24h: token.virtual_sol_reserves * 0.1, // Estimate based on reserves
+              volume24h: token.virtual_sol_reserves * 0.1,
               marketCap: token.usd_market_cap || token.market_cap || 0,
-              description:
-                token.description || `${token.name} - Pump.fun memecoin`,
+              description: enhancedDescription,
             },
           });
+
+          this.logger.log(
+            `✅ SAVED TO DATABASE: ${token.symbol} (ID: ${createdToken.id}) - Image: ${enhancedImageUrl ? 'Yes' : 'No'}`,
+          );
 
           this.logger.log(`✅ New token ${token.symbol} stored successfully`);
         } else {
@@ -882,12 +1115,32 @@ export class TokenDataService implements OnModuleInit {
       // Buscar total de tokens para paginação
       const total = await this.prisma.token.count();
 
-      // Buscar tokens com paginação e ordenação
-      const tokens = await this.prisma.token.findMany({
+      // Buscar tokens com paginação e ordenação, filtrando apenas tokens válidos
+      const allTokens = await this.prisma.token.findMany({
         skip,
-        take: limit,
+        take: limit * 2, // Buscar mais tokens para ter o suficiente após filtrar
         orderBy: { [validSortField]: validSortOrder },
       });
+
+      // Filtrar tokens baseado na completude dos dados, não em padrões de nome
+      const tokens = allTokens
+        .filter(
+          (token) =>
+            // Campos obrigatórios devem existir e não estar vazios
+            token.address && 
+            token.address.trim().length > 0 &&
+            token.name && 
+            token.name.trim().length > 0 &&
+            token.symbol && 
+            token.symbol.trim().length > 0 &&
+            // Campos numéricos devem ser válidos
+            (token.priceUsd === null || token.priceUsd === undefined || (typeof token.priceUsd === 'number' && token.priceUsd >= 0)) &&
+            (token.marketCap === null || token.marketCap === undefined || (typeof token.marketCap === 'number' && token.marketCap >= 0)) &&
+            (token.volume24h === null || token.volume24h === undefined || (typeof token.volume24h === 'number' && token.volume24h >= 0)) &&
+            // Deve ter pelo menos alguns campos não-nulos além dos obrigatórios
+            (token.description !== null || token.imageUrl !== null || token.priceUsd !== null),
+        )
+        .slice(0, limit); // Limitar ao tamanho real da página
 
       const totalPages = Math.ceil(total / limit);
 
@@ -925,12 +1178,6 @@ export class TokenDataService implements OnModuleInit {
   async fetchAndSaveTokenList(): Promise<void> {
     // Fetches latest tokens from Pump.fun API
     await this.fetchAndStoreLatestTokens();
-  }
-
-  async addPopularSolanaTokens(): Promise<void> {
-    // Adds more memecoins from Pump.fun API
-    await this.fetchAndStoreLatestTokens();
-    this.logger.log('🚀 New memecoins added from Pump.fun API!');
   }
 
   async getTokensByIds(ids: string[]): Promise<Token[]> {

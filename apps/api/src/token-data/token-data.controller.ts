@@ -106,12 +106,11 @@ export class TokenDataController {
   @Post('pumpfun/discover')
   async discoverNewMemecoins() {
     try {
-      await this.tokenDataService.addPopularSolanaTokens();
+      await this.tokenDataService.fetchAndStoreLatestTokens();
       return {
         success: true,
         message: '🚀 Discovering new Pump.fun memecoins',
-        discovered: Math.floor(Math.random() * 10), // Mock discovery count
-        note: 'New memecoins are discovered automatically',
+        note: 'New memecoins are discovered automatically via WebSocket',
       };
     } catch (error) {
       return {
@@ -172,6 +171,24 @@ export class TokenDataController {
       return {
         success: true,
         message: 'Token cleanup completed successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  @Post('process-missing-images')
+  async processMissingImages() {
+    try {
+      const result =
+        await this.tokenDataService.processTokensWithMissingImages();
+      return {
+        success: true,
+        message: `Processed ${result.processed} tokens with missing images`,
+        data: result,
       };
     } catch (error) {
       return {

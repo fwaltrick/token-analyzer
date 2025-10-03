@@ -3,19 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  BarChart3,
-  Zap,
-  TrendingUp,
-  Settings,
-  Menu,
-  X,
-  Home,
-  Search,
-  Bell,
-  User,
-  Flame,
-} from 'lucide-react'
+import { BarChart3, Eye, Star, PieChart, Settings, Menu, X, Home, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -32,55 +20,25 @@ export function Sidebar({ className }: SidebarProps) {
       name: 'Dashboard',
       href: '/dashboard',
       icon: Home,
-      description: 'Token analysis overview',
+      description: 'Token overview',
     },
     {
-      name: '🎯 Pump.fun Live',
-      href: '/pumpfun',
-      icon: Zap,
-      description: 'Real-time Pump.fun analysis',
+      name: 'Watchlist',
+      href: '/watchlist',
+      icon: Eye,
+      description: 'Tokens you monitor',
     },
     {
-      name: 'Token Details',
-      href: '/token-details',
-      icon: BarChart3,
-      description: 'Detailed token analysis',
+      name: 'Favorites',
+      href: '/favorites',
+      icon: Star,
+      description: 'Your starred tokens',
     },
     {
-      name: 'High Potential',
-      href: '/high-potential',
-      icon: TrendingUp,
-      description: 'High growth tokens',
-    },
-    {
-      name: 'Search',
-      href: '/search',
-      icon: Search,
-      description: 'Find tokens',
-    },
-    {
-      name: 'Analytics',
-      href: '/analytics',
-      icon: BarChart3,
-      description: 'Market analytics',
-    },
-    {
-      name: 'Alerts',
-      href: '/alerts',
-      icon: Bell,
-      description: 'Price alerts',
-    },
-    {
-      name: 'Profile',
-      href: '/profile',
-      icon: User,
-      description: 'User settings',
-    },
-    {
-      name: 'Settings',
-      href: '/settings',
-      icon: Settings,
-      description: 'App preferences',
+      name: 'Portfolio',
+      href: '/portfolio',
+      icon: PieChart,
+      description: 'Track your holdings',
     },
   ]
 
@@ -146,12 +104,41 @@ export function Sidebar({ className }: SidebarProps) {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-border">
+      {/* User Info & Footer */}
+      <div className="p-4 border-t border-border space-y-3">
         {!isCollapsed && (
-          <div className="text-xs text-muted-foreground">
-            <p>Token Analyzer v1.0</p>
-            <p>Real-time Solana data</p>
+          <>
+            {/* Settings Link */}
+            <Link href="/settings">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-muted">
+                <Settings className="h-4 w-4 flex-shrink-0" />
+                <span>Settings</span>
+              </div>
+            </Link>
+            
+            <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
+              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">User</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  user@example.com
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+        {isCollapsed && (
+          <div className="flex flex-col items-center space-y-2">
+            <Link href="/settings">
+              <div className="h-8 w-8 rounded-lg bg-muted/50 flex items-center justify-center hover:bg-muted transition-colors">
+                <Settings className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </Link>
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+              <User className="h-4 w-4 text-primary" />
+            </div>
           </div>
         )}
       </div>
